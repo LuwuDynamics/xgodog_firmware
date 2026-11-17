@@ -8,10 +8,12 @@
 #include "motor/motor.h"
 #include "action/action.h"
 #include "motion/gait.h"
+#include "protocol/protocol.h"
 #include "sensor/attitude.h"
 #include <Adafruit_NeoPixel.h>
 
 static void updateOutputs(void);
+static void updateShutdownNotice();
 static void updatePowerSwitch(float sw_state_adc);
 static void updateBattery(void);
 static void handleLowBattery(void);
@@ -77,6 +79,7 @@ static void gpioTask(void* pvParameters) {
         Calibration_Update(cal_btn);
         updatePowerSwitch(sw_adc);
         updateBattery();
+        updateShutdownNotice();
         updateOutputs();
         updateErrors();
         vTaskDelay(pdMS_TO_TICKS(GPIO_TASK_PERIOD_MS));
@@ -95,6 +98,28 @@ static uint8_t sw_button_stage = 0;   /* 0=未触发 1=已触发长按 */
 static uint16_t sw_listen_count = 0;
 
 #define SHUTDOWN_HOLD_SAMPLES 30
+
+constexpr uint32_t kShutdownNoticeIntervalMs = 300;
+static bool shutdownNoticeActive = false;
+static uint32_t lastShutdownNoticeMs = 0;
+
+static void beginShutdownRest()
+{
+    Falldown();
+    if (!shutdownNoticeActive && swCtrl != 0) {
+        lastShutdownNoticeMs = millis();
+        shutdownNoticeActive = true;
+    }
+}
+
+static void updateShutdownNotice()
+{
+    if (!shutdownNoticeActive) return;
+    const uint32_t nowMs = millis();
+    if (nowMs - lastShutdownNoticeMs < kShutdownNoticeIntervalMs) return;
+    lastShutdownNoticeMs = nowMs;
+    Protocol_SendShutdownNotice();
+}
 
 static void updatePowerSwitch(float sw_state_adc) {
     /* ADC<300 视为按下，连续 30 次进入关机阶段 */
@@ -121,7 +146,7 @@ static void updatePowerSwitch(float sw_state_adc) {
         isReceiveMsg = false;
         Reset(2);
     }else if(sw_listen_count == 20){ // 20 ms GPIO polling interval
-        Falldown();
+        beginShutdownRest();
     }else if(sw_listen_count == 90){
         EnableAllMotor(0);
     }else if(sw_listen_count == 100){
@@ -130,6 +155,7 @@ static void updatePowerSwitch(float sw_state_adc) {
 }
 
 void Switch_Off(void) {
+    shutdownNoticeActive = false;
     swCtrl = 0;
     digitalWrite(sw_ctrl_pin, swCtrl);  /* 立即拉低，后续由 updateOutputs 维持 */
 }
@@ -219,7 +245,7 @@ static void handleLowBattery(void) {
         if (isBattLow == 1) {
             Reset(2);
         } else if (isBattLow == 50) {
-            Falldown();
+            beginShutdownRest();
         } else if (isBattLow == 120) {
             EnableAllMotor(0);
         } else if (isBattLow >= 150) {

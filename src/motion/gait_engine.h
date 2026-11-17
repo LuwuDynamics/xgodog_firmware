@@ -96,8 +96,8 @@ struct GaitInput {
 
 class GaitEngine {
 public:
-    static constexpr uint32_t BrakeUs = 100000;
-    static constexpr uint32_t CenterUs = 250000;
+    static constexpr uint32_t BrakeUs = 40000;
+    static constexpr uint32_t CenterUs = 110000;
     void reset();
     void begin(const WalkFeet &current, bool lead02);
     const WalkFeet &update(const GaitInput &input, uint32_t elapsed_us);
@@ -110,6 +110,7 @@ private:
         uint32_t elapsed = 0;
     };
     void latchTiming(const GaitInput &input);
+    void startRunning(const GaitInput &input);
     void startStep(const GaitInput &input);
     void segment(unsigned leg, const WalkFoot &target, const WalkFoot &velocity, uint32_t duration);
     void swing(unsigned leg);

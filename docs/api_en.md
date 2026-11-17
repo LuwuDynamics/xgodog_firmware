@@ -211,6 +211,16 @@ Send `CMD=0x02` and `DATA=[N]`, where `N` is the requested number of bytes. The 
 For `0x50`, any request length other than 1 returns all 16 angles. Request 16 for this operation. Use the reply's actual length for fixed-length fields. Unknown addresses can return stale response-buffer data and cannot be used for capability detection. Read single-byte fields with `N=1`.
 
 
+### 3.3 Shutdown feedback
+
+When a long power-button press or sustained undervoltage starts shutdown, the firmware commands the robot to lie down. It sends the first frame about 300 ms later, then sends one frame on each of UART0 and UART1 about every 300 ms until power is cut. The feedback is automatic and requires no query or telemetry subscription.
+
+| `CMD` | `ADDR` | `DATA` | Complete frame |
+| --- | --- | --- | --- |
+| `0x12` | `0x00` | `FF` | `55 00 09 12 00 FF E5 00 AA` |
+
+On models with an FDI serial IMU, receive this feedback on UART1. UART0 keeps the FDI pin assignment and baud rate.
+
 ## 4. Main/sub-address protocol
 
 ### 4.1 Subfield encoding
@@ -256,6 +266,8 @@ Writes to groups 1 and 2 have no effect. Groups 3–7 have no read interface.
 | 24 | W | 1 | `u8` | Set heading origin to current IMU yaw with exactly `[1,1]` |
 
 Writing 10, 11, 20, or 22 selects whole-body control. Writing 20 also disables IMU stabilization and applies deadbands to all motion axes. Groups 21 and 23 accept multiple byte items in one frame. Groups 22–24 have no read interface.
+
+When all motion inputs return to their deadbands, the firmware clears the relative heading reference. The current swing finishes, and the next motion uses the valid IMU heading at restart as its reference. Releasing only the turn input during translation keeps the accumulated target heading. Explicit heading commands follow the rules of the selected mode.
 
 ```text
 period = 0: stop after the current oscillation cycle

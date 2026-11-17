@@ -2,6 +2,7 @@
 #include "robot/math.h"
 #include "action/action.h"
 #include "motion/gait.h"
+#include "motion/control.h"
 #include "board/calibration.h"
 #include "robot/state.h"
 #include "motor/motor.h"
@@ -59,6 +60,7 @@ void RobotCommand_ApplyMotion(uint8_t axisMask)
         body.vy = 0;
     if ((axisMask & ROBOT_MOTION_YAW) != 0 && fabsf(imu.yaw_speed) < 0.1f)
         imu.yaw_speed = 0;
+    MotionControl_NotifyMotionCommand();
 }
 
 bool RobotCommand_SetGaitPeriod(uint8_t periodIndex)

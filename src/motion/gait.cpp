@@ -130,8 +130,7 @@ float limitSupportOffset(float offset, float lift) {
     kinematics::Point bases[4];
     if (!kinematics::solveBody(geometry,
         {body.x, body.y, body.z, body.rol, body.pit, body.yaw}, sign, bases)) return 0;
-    // Reserve both swing overtravel (<20%) and the existing 100 ms stop
-    // trajectory's travel. Do not let extra placement reach a joint stop.
+    // Reserve travel for swing overtravel and stop braking when shifting feet.
     const float stanceSeconds = fmaxf(0.2f, gm.T / SYSTEM_TICK_HZ)
         * (1.0f - fminf(0.5f, fmaxf(0.05f, sr)));
     const float excursion = fmaxf(1.2f, 1.0f + xgo::GaitEngine::BrakeUs*0.000001f/stanceSeconds);
@@ -238,8 +237,7 @@ void GaitUpdateMotion(bool moving, float legYaw) {
     // planner applies stride limits and the support-centroid transfer.
     if (!want_high) moving &= has_stride;
 
-    // Only one planner owns the output. Drain the previous gait before handing
-    // its neutral, stationary feet to another type (including pure wheel mode).
+    // Only one planner owns the feet. Finish its stop before switching gait types.
     if (ordinary_gait.active()) {
         applyFeet(ordinary_gait.update(ordinaryInput(moving && !want_high), motion_time::stepMicroseconds()));
         gait_reinit = 0;

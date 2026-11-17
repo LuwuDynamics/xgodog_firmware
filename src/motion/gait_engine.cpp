@@ -34,6 +34,12 @@ void GaitEngine::latchTiming(const GaitInput &input) {
     for (unsigned slot=0; slot<4; ++slot)
         lift_at_[order[slot]] = input.walk ? cycle_us_*slot/4 : (slot/2)*(cycle_us_/2);
 }
+void GaitEngine::startRunning(const GaitInput &input) {
+    latchTiming(input);
+    mode_ = Mode::Running;
+    clock_us_ = 0;
+    startStep(input);
+}
 void GaitEngine::startStep(const GaitInput &input) {
     // Every preceding swing has landed at this scheduled exchange. Adopt the
     // latest stride for all feet together; never redirect an airborne target.
@@ -116,7 +122,11 @@ void GaitEngine::events(const GaitInput &input) {
             if (legs_[i].elapsed == legs_[i].trajectory.duration && legs_[i].trajectory.swing) brake(i);
             done &= legs_[i].elapsed == legs_[i].trajectory.duration;
         }
-        if (done) center();
+        if (done) {
+            // A fresh command can start from the grounded, stationary feet.
+            if (input.moving && input.kind == command_.kind) startRunning(input);
+            else center();
+        }
     } else if (mode_ == Mode::Center) {
         bool done = true;
         for (const auto &leg : legs_) done &= leg.elapsed == leg.trajectory.duration;
@@ -129,10 +139,7 @@ const WalkFeet &GaitEngine::update(const GaitInput &input, uint32_t elapsed_us) 
         bool displaced = false;
         for (const auto &leg : legs_) displaced |= std::fabs(leg.sample.position.z)>0.001f;
         if (displaced || !input.moving) center();
-        else {
-            latchTiming(input); mode_ = Mode::Running; clock_us_ = 0;
-            startStep(input);
-        }
+        else startRunning(input);
     }
     if (mode_ == Mode::Running && (!input.moving || input.kind != command_.kind)) requestStop();
     uint32_t remaining = smaller(elapsed_us, 20000);

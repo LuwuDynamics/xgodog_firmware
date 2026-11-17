@@ -56,6 +56,17 @@ bool ProtocolFrame_FinalizeResponse(uint8_t command, uint8_t address,
     return true;
 }
 
+void Protocol_SendShutdownNotice()
+{
+    constexpr uint8_t payload = 0xFF;
+    uint8_t frame[PROTOCOL_FRAME_OVERHEAD + sizeof(payload)];
+    uint8_t frameLength = 0;
+    if (encodeResponse(0x12, 0x00, &payload, sizeof(payload), frame, sizeof(frame), &frameLength)) {
+        ProtocolTransport_Send(PORT_SERIAL0, frame, frameLength);
+        ProtocolTransport_Send(PORT_SERIAL1, frame, frameLength);
+    }
+}
+
 namespace {
 constexpr uint16_t kUartRxBudget = 512;
 constexpr uint16_t kTelemetryFrameSize = 254;

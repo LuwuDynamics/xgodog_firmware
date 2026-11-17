@@ -89,9 +89,10 @@ void WalkPlanner::transfer(const WalkInput &input) {
     time_us_ = 0; stage_ = WalkStage::Transfer;
 }
 void WalkPlanner::beginStop() {
+    constexpr float kStopCenterSeconds = 0.18f;
     from_ = feet_; target_ = {};
     shift_from_ = shift_; shift_target_ = {};
-    time_us_ = 0; duration_us_ = microseconds(config_.landing_s);
+    time_us_ = 0; duration_us_ = microseconds(std::min(config_.landing_s, kStopCenterSeconds));
     stage_ = WalkStage::Center;
 }
 void WalkPlanner::render() {
@@ -135,7 +136,7 @@ const WalkFeet &WalkPlanner::update(const WalkInput &input, float dt_s) {
         if (time_us_ < duration_us_) break;
         // Stop at an existing zero-velocity endpoint. Never redirect an airborne
         // foot or start another swing after a stop request. Centering remains
-        // bounded by the remaining current stage plus landing_s.
+        // bounded by the remaining current stage plus the stop centering time.
         if (stage_ == WalkStage::Landing) {
             bool neutral = true;
             for (const auto &foot : feet_)

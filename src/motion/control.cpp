@@ -17,7 +17,7 @@
 static void updateBodyXYZ();
 static void updateBodyRPY();
 static void updateBodyState();
-static void updateYawSpeed();
+static void updateYawSpeed(bool stopRequested);
 
 namespace motion {
 static_assert(Period_T_MIN > 0 && Period_T_MAX >= Period_T_MIN &&
@@ -97,6 +97,7 @@ constexpr float kWheelHeadingGain = 0.05f;
 constexpr float kWheelLegHeadingGain = 0.33f;
 bool stableFeedbackLost = true;
 std::atomic<bool> resetPending{false};
+std::atomic<bool> stopPending{false};
 
 void clearPidHistory(PID_t &pid) {
     pid.fpE = pid.fpPreE = pid.fpSumE = pid.fpU = 0;
@@ -107,22 +108,34 @@ void MotionControl_RequestReset() {
     resetPending.store(true, std::memory_order_release);
 }
 
+static bool translationIdle()
+{
+    return fabsf(body.vx) <= 5.0f && fabsf(body.vy) <= 1.0f;
+}
+
+static bool turnInputIdle()
+{
+    return fabsf(imu.yaw_speed) <= 0.1f;
+}
+
+void MotionControl_NotifyMotionCommand()
+{
+    if (yaw_track_flag == 0 && translationIdle() && turnInputIdle())
+        stopPending.store(true, std::memory_order_release);
+}
+
 static bool CommandSpeedIdle(void)
 {
     if (MoveMode == MOVE_MODE_WHEEL2)
-        return fabsf(body.vx) <= 5.0f && fabsf(body.vy) <= 1.0f
-            && fabsf(imu.yaw_speed) <= 0.1f;
+        return translationIdle() && turnInputIdle();
     const bool headingAvailable = isIMUInit && imu_health::fresh((uint32_t)millis()) && isfinite(imu.yaw);
-    return fabsf(body.vx) <= 5.0f
-        && fabsf(body.vy) <= 1.0f
-        && (!headingAvailable || (fabsf(imu.yaw_speed) <= 0.1f && yaw_track_flag == 0));
+    return translationIdle() && (!headingAvailable || (turnInputIdle() && yaw_track_flag == 0));
 }
 
 static void updateWheelSpeed(){
     // Open-loop wheel output; pure wheel mode mixes the heading correction
     // into steering without using measured wheel speed.
-    const bool idle = fabsf(body.vx) <= 5.0f && fabsf(body.vy) <= 1.0f
-        && fabsf(imu.yaw_speed) <= 0.1f;
+    const bool idle = translationIdle() && turnInputIdle();
     double wheelDrive = 20.0 * body.vx;
     double wheelTurn = 40.0 * body.vyaw;
     if (MoveMode == MOVE_MODE_WHEEL2) {
@@ -156,13 +169,15 @@ static void updateWheelSpeed(){
     }
 }
 
-static void updateMoveSpeed() {
+static void updateMoveSpeed(bool stopRequested) {
     body.vx = Saturation(body.vx, bodyConfig.vx_max, bodyConfig.vx_min);
     body.vy = Saturation(body.vy, bodyConfig.vy_max, bodyConfig.vy_min);
     body.vyaw = Saturation(body.vyaw, bodyConfig.vyaw_max, bodyConfig.vyaw_min);
     // The gait adapter owns contact, phase, transitions and the wheel handoff.
     const float legYaw = MoveMode == MOVE_MODE_WHEEL2 ? wheelLegYaw : body.vyaw;
-    GaitUpdateMotion(!CommandSpeedIdle(), legYaw);
+    // Process a short stop pulse even when the next motion command has arrived.
+    const bool finishStep = stopRequested && yaw_track_flag == 0 && GaitIsActive();
+    GaitUpdateMotion(!finishStep && !CommandSpeedIdle(), legYaw);
 }
 
 static void controlStep(){
@@ -193,9 +208,10 @@ static void controlStep(){
         // release it only for movement or a gait that is still finishing.
         if (Action_Ctx.id == 0 && isIMUInit != 0 && (!CommandSpeedIdle() || GaitIsActive()))
             SetLegMotorSpeed(0);
+        const bool stopRequested = stopPending.exchange(false, std::memory_order_acq_rel);
         updateBodyState();
-        updateYawSpeed();
-        updateMoveSpeed();
+        updateYawSpeed(stopRequested);
+        updateMoveSpeed(stopRequested);
         updateWheelSpeed();
         WholeIK();
     }else if (xgo_mode == XGO_MODE_LEG || xgo_mode == XGO_MODE_MOTOR) {
@@ -226,7 +242,11 @@ void MotionControl_Step(uint32_t elapsedUs) {
     motion_time::endStep();
 }
 
-static void updateYawSpeed(void){
+static void updateYawSpeed(bool stopRequested){
+    if (stopRequested) {
+        headingFeedbackLost = true;
+        wheelHeadingActive = false;
+    }
     wheelLegYaw = 0;
     if (!isfinite(imu.yaw_speed)) imu.yaw_speed = 0;
     if (MoveMode == MOVE_MODE_WHEEL2) {
@@ -265,9 +285,15 @@ static void updateYawSpeed(void){
         headingFeedbackLost = true;
         return;
     }
+    if (CommandSpeedIdle()) {
+        imu.des_yaw = imu.yaw;
+        body.vyaw = 0;
+        clearPidHistory(move_yaw_pid);
+        headingFeedbackLost = true;
+        return;
+    }
     if (headingFeedbackLost) {
-        // Relative steering cannot replay an unobserved yaw interval. Resume
-        // from the recovered heading; an explicit absolute target is retained.
+        // Anchor the next motion at the current observation after idle or lost IMU feedback.
         imu.des_yaw = imu.yaw;
         clearPidHistory(move_yaw_pid);
         headingFeedbackLost = false;
@@ -278,7 +304,7 @@ static void updateYawSpeed(void){
 	move_yaw_pid.fpKi = 0.0f;
 	move_yaw_pid.fpKd = 0.02f;
 	float track_err = 0.0;
-	if(!CommandSpeedIdle() && yaw_track_flag){
+	if (yaw_track_flag) {
 		gm.T = bodyConfig.NORMAL_T;
 		SetLegMotorSpeed(0);
 		track_err = imu.yaw_des - imu.yaw;
@@ -298,23 +324,8 @@ static void updateYawSpeed(void){
 		return;
 	}
 
-	/* 只在四脚停稳时刷新目标。起步这一拍指令已离开死区，但步态尚未启动，
-	   不会进这里，目标保持上一拍停稳时的航向，不会把起步带偏的 yaw 锁成新目标。
-	   迈步中指令短暂回到死区也不重新采样。 */
-	if(CommandSpeedIdle() && !GaitIsActive()){
-		imu.des_yaw = imu.yaw;
-		body.vyaw = 0;
-		move_yaw_pid.fpE = 0;
-		move_yaw_pid.fpPreE = 0;
-		move_yaw_pid.fpSumE = 0;
-		move_yaw_pid.fpU = 0;
-		return;
-	}
-
-	if(!CommandSpeedIdle()) {
-        const float target = imu.des_yaw + imu.yaw_speed * motion_time::stepTicks();
-        imu.des_yaw = isfinite(target) ? target : imu.yaw;
-    }
+    const float target = imu.des_yaw + imu.yaw_speed * motion_time::stepTicks();
+    imu.des_yaw = isfinite(target) ? target : imu.yaw;
 	move_yaw_pid.fpDes = imu.des_yaw;
 	move_yaw_pid.fpFB = imu.yaw;
 	CalISeparatedPID(&move_yaw_pid, motion_time::stepTicks());

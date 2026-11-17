@@ -250,8 +250,8 @@ static void writeMotorEnable(uint8_t ID, uint8_t state, uint8_t version){ // 修
     if(version != 0x03){
         payload[0] = 0x15;
         if(state == 1){
-            payload[1] = 32;
-            payload[2] = 16;
+            payload[1] = version == MOTOR_3032 ? 24 : 32;
+            payload[2] = version == MOTOR_3032 ? 0 : 16;
         }else{
             if(version==0x01){
                 payload[1] = 0;
@@ -663,7 +663,7 @@ void EnableAllMotor(uint8_t state){
 }
 
 // Calibration can leave PD registers disabled across an ESP32 restart.
-// Restore Kp=32, Kd=16 for each 009/3032 leg/arm ID, never wheels.
+// Restore drive gains for each 009/3032 leg and arm ID.
 static void restoreLegArmDrive(void){
     if ((motor_version != MOTOR_009 && motor_version != MOTOR_3032) || inCalibration)
         return;
@@ -671,6 +671,12 @@ static void restoreLegArmDrive(void){
         for (int j = 0; j < 3; j++) {
             const BusLock lock;
             writeMotorEnable(motor[i].id, 1, motor_version);
+            waitWithFeedback(5);
+        }
+        if (motor_version == MOTOR_3032) {
+            uint8_t deadband[] = {26, 3, 3}; // Start address, then both directions.
+            const BusLock lock;
+            writeInstruction(motor[i].id, 0x03, deadband, sizeof(deadband));
             waitWithFeedback(5);
         }
     }

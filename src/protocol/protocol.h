@@ -12,6 +12,7 @@ enum ProtocolPort : uint8_t {
 // Configure host UARTs before starting the protocol task.
 void ProtocolTransport_Init();
 void Protocol_Start();
+void Protocol_SendShutdownNotice();
 
 // Each UART/BLE stream owns an independent parser; dispatch is immediate.
 void Protocol_ProcessBytes(const uint8_t *data, uint16_t length, uint8_t port);
