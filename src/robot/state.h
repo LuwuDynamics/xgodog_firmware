@@ -6,7 +6,7 @@
 #define XGOMINI 1
 #define XGOLITE 2
 
-#define XGO_FIRMWARE_VERSION "-7.3.3"
+#define XGO_FIRMWARE_VERSION "-7.3.4"
 
 struct RobotProfile {
     BodyParam_t body;
