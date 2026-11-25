@@ -90,9 +90,9 @@ The legacy scale and main/sub-address pose limits are listed below. Firmware sel
 | Body Z / mm | 70 to 120 | 70 to 114 | 65 to 110 |
 | Default standing height / mm | 100 | 100 | 85 |
 | Roll / Pitch / Yaw / ° | −18 to 18 | −18 to 18 | −15 to 15 |
-| `vx` command | −33 to 33 | −26.4 to 26.4 | −14.3 to 22 |
-| `vy` command | −15 to 15 | −18 to 18 | −12.5 to 12.5 |
-| `yaw_speed` command | −0.75 to 0.75 | −0.75 to 0.75 | −0.75 to 0.75 |
+| `vx` command | −20 to 30 | −20 to 25 | −14.3 to 22 |
+| `vy` command | −20 to 20 | −20 to 20 | −12.5 to 12.5 |
+| `yaw_speed` command | −0.60 to 0.60 | −0.60 to 0.60 | −0.60 to 0.60 |
 
 Legacy scaling:
 
@@ -100,6 +100,10 @@ Legacy scaling:
 Write: value = byte / 255 × (maximum − minimum) + minimum
 Read:  byte = trunc((value − minimum) / (maximum − minimum) × 255), clamped to 0–255
 ```
+
+For Mini and wheel-legged Mini, `vx` (`0x30`) uses `0x80` as zero. Bytes `0x00–0x80` map linearly to −20 to 0. Bytes `0x80–0xFF` map linearly to 0 to 30 on Mini and 0 to 25 on wheel-legged Mini. Reads use the same segments and round to the nearest byte. Small commands still pass through the motion deadband.
+
+`yaw_speed` is the angular increment per nominal 5 ms control step. Full scale corresponds to a target heading rate of ±120°/s.
 
 Only the listed block registers support writing multiple addresses in one request. Standard single-byte registers use the first data byte.
 
@@ -301,6 +305,8 @@ sign for leg groups 1..4 = −1, +1, +1, −1
 Ld = 31.6 mm for Mini and 28.1 mm for Lite
 ```
 
+In whole-body control, default foot base Y is ±31.6 mm for Mini and ±21.6 mm for wheel-legged Mini. Direct foot Y writes still use the mounting-offset conversion above.
+
 Main 40 supports built-in IDs and extension IDs 91–100. The firmware's normal polling does not query extension servos. A read returns the value held by the firmware. Only a standalone `[255]` expands to all built-in servos. Writing IDs 52 or 53 disables arm coordinate control. Main 41 allows individual and group items in one frame.
 
 #### Arm coordinates at main address 53
@@ -390,7 +396,7 @@ The order of all built-in servo feedback is fixed. These are decimal device IDs.
 
 | Timing preset | Mini / wheel-legged Mini | Lite |
 | ---: | ---: | ---: |
-| 0 normal | 0.43 s | 0.45 s |
+| 0 normal | 0.42 s | 0.45 s |
 | 1 slow | 0.52 s | 0.60 s |
 | 2 fast | 0.37 s | 0.36 s |
 

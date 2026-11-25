@@ -12,9 +12,13 @@ struct ArmAngles { float elbow, shoulder; };
 // Rotation from body to ground: Rz(yaw) Ry(pitch) Rx(roll).
 struct BodyPose { float x, y, z, roll, pitch, yaw; };
 
+inline float neutralFootHalfWidth(const BodyParam_t &profile) {
+    return profile.width + profile.L_d - profile.stance_y_inset;
+}
+
 // Construct once per solve, sharing invariant terms across all four legs.
 struct Geometry {
-    const float upper, lower, lateral, halfWidth, halfLength;
+    const float upper, lower, lateral, halfWidth, halfLength, footHalfWidth;
     const float upperSquared, lowerSquared, lateralSquared, twiceUpper, kneeDenominator;
     const bool valid;
     explicit Geometry(const BodyParam_t &profile);
@@ -29,9 +33,8 @@ struct ArmGeometry {
 // Output arguments remain unchanged on any invalid input or unreachable target.
 // A bounded acos tolerance (1e-4) admits sub-millimetre boundary roundoff;
 // farther unreachable points are rejected instead of projected onto a trajectory.
-// Leg domain: side is +/-1 and foot.z + heightBias > 0 (below the hip).
-bool solveLeg(const Geometry &geometry, const Point &foot, float side,
-              float heightBias, LegAngles &angles);
+// Leg domain: side is +/-1 and foot.z > 0 (below the hip).
+bool solveLeg(const Geometry &geometry, const Point &foot, float side, LegAngles &angles);
 bool solveBody(const Geometry &geometry, const BodyPose &pose, const Sign &sides,
                Point (&bases)[4]);
 bool compensateArm(const BodyPose &pose, float standingHeight, const Point &target,

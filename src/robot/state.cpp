@@ -30,7 +30,13 @@ uint8_t feedback_flag = 0;
 uint8_t MoveMode = MOVE_MODE_HYBRID;
 /*运动*/
 uint8_t yaw_track_flag = 0; // yaw指定跟踪标志位
-PID_t move_yaw_pid = {.fpKp = 3.0f, .fpUMax = 255.0f, .fpEiMax = 8.0f, .fpEMin = 1.0f};
+PID_t move_yaw_pid = {
+    .fpKp = 0.216f,
+    .fpKd = 0.02f,
+    .fpUMax = 255.0f,
+    .fpEiMax = 8.0f,
+    .fpEMin = 1.5f,
+};
 
 float sr = 0.48; // swing phase ratio 摆动相占比
 
@@ -135,6 +141,6 @@ void Init_Globals(){
     Reset_Body();
 
     imu.yaw_origin = 0;
-    imu.yaw_speed_min = -0.75;
-    imu.yaw_speed_max = 0.75;
+    imu.yaw_speed_max = YAW_RATE_LIMIT_DEG_S / SYSTEM_TICK_HZ;
+    imu.yaw_speed_min = -imu.yaw_speed_max;
 }

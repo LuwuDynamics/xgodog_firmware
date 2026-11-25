@@ -73,6 +73,7 @@ typedef struct {
     float rolmin, pitmin, yawmin;
     float vx_max, vy_max, vyaw_max;
     float vx_min, vy_min, vyaw_min;
+    float stance_y_inset; // Inward offset of each neutral foot anchor, mm.
 
 } BodyParam_t;
 
@@ -95,7 +96,6 @@ typedef struct {
     float theta2;
     float theta3;
     float sign;
-    float z_bias;
 } Leg_t;
 
 typedef struct {

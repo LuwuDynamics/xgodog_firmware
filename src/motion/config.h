@@ -3,11 +3,12 @@
 
 // Shared Motion Tick units and deployed gait tuning.
 #define SYSTEM_TICK_HZ 200
+#define YAW_RATE_LIMIT_DEG_S 120.0f
 #define SEC_2_TICK(sec) ((uint32_t)((sec) * SYSTEM_TICK_HZ))
 #define Period_T_MIN 1000
 #define Period_T_MAX 4000
 
-#define NORMAL_PERIOD 0.43f
+#define NORMAL_PERIOD 0.42f
 #define FAST_PERIOD 0.37f
 #define SLOW_PERIOD 0.52f
 #define MID_PERIOD 0.45f
@@ -18,6 +19,7 @@
 #define MID_SPEED 3
 
 #define STEP_HEIGHT 22.0f
+#define STEP_HEIGHT_MINI 20.0f
 #define STEP_HEIGHT_WHEEL 18.0f
 #define TROT_SLOW_LIFT 18.0f
 #define GAIT_TROT 0

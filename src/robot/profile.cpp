@@ -39,26 +39,21 @@ RobotProfile RobotProfile_Create(const uint8_t model, const uint8_t wheel){
         bodyConfig.pitmin = -18;
         bodyConfig.yawmin = -18;
 
-        bodyConfig.vx_max = 33;
-        bodyConfig.vx_min = -33;
+        bodyConfig.vx_max = wheel == 1 ? 25.0f : 30.0f;
+        bodyConfig.vx_min = -20.0f;
 
-        bodyConfig.vy_max = 15;
-        bodyConfig.vy_min = -15;
+        bodyConfig.vy_max = 20.0f;
+        bodyConfig.vy_min = -bodyConfig.vy_max;
 
-        bodyConfig.vyaw_max = 12;
-        bodyConfig.vyaw_min = -12;
+        bodyConfig.vyaw_max = 16.0f;
+        bodyConfig.vyaw_min = -bodyConfig.vyaw_max;
 
         if(wheel == 1){
             bodyConfig.L_c = 68.5f;
+            bodyConfig.stance_y_inset = 10.0f;
             bodyConfig.ymax *= 0.9;
             bodyConfig.ymin *= 0.9;
             bodyConfig.zmax *= 0.95;
-            bodyConfig.vx_max *= 0.8;
-            bodyConfig.vx_min *= 0.8;
-            bodyConfig.vy_max *= 1.2;
-            bodyConfig.vy_min *= 1.2;
-            bodyConfig.vyaw_max *= 1.2;
-            bodyConfig.vyaw_min *= 1.2;
         }
     }else{
         bodyConfig.width = 45.0f/2;
@@ -93,7 +88,8 @@ RobotProfile RobotProfile_Create(const uint8_t model, const uint8_t wheel){
         bodyConfig.vyaw_max = 8;
         bodyConfig.vyaw_min = -8;
     }
-    profile.stepHeight = (wheel == 1) ? STEP_HEIGHT_WHEEL : STEP_HEIGHT;
+    profile.stepHeight = wheel == 1 ? STEP_HEIGHT_WHEEL
+        : model == XGOMINI ? STEP_HEIGHT_MINI : STEP_HEIGHT;
     formatFirmwareVersion(model, wheel, profile.firmwareVersion);
     return profile;
 }

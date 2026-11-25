@@ -39,6 +39,7 @@ void WalkPlanner::reset() {
     stage_ = WalkStage::Idle; feet_ = from_ = target_ = output_ = {};
     shift_ = shift_from_ = shift_target_ = {};
     time_us_ = 0; slot_ = 0;
+    lift_steps_ = 0;
 }
 void WalkPlanner::setLeadPair(bool lead02) {
     config_.order = lead02 ? std::array<uint8_t, 4>{{0, 2, 1, 3}}
@@ -75,6 +76,9 @@ void WalkPlanner::transfer(const WalkInput &input) {
     }
     shift_target_.x *= config_.shift_scale;
     shift_target_.y *= config_.shift_scale;
+    support_x_mm_ = stopping ? 0 : bounded(input.support_x_mm*scale, 0, kMaxSupportOffsetMm);
+    // render() subtracts the body shift, so subtracting here adds to all feet.
+    shift_target_.x -= support_x_mm_;
     // Latch the landing target and timing once per step: changes mid-swing
     // cannot move its endpoint or restart its trajectory.
     landing_target_ = {};
@@ -85,7 +89,9 @@ void WalkPlanner::transfer(const WalkInput &input) {
     const float quarter = bounded(input.cycle_s, config_.min_cycle_s, 20)/4;
     duration_us_ = microseconds(quarter*config_.transfer_fraction);
     swing_us_ = microseconds(quarter*(1-config_.transfer_fraction));
-    lift_ = bounded(input.lift_mm, 0, config_.max_lift_mm);
+    const float liftScale = input.full_lift_from_start ? 1.0f
+        : kStartupLiftScales[lift_steps_ / config_.order.size()];
+    lift_ = bounded(input.lift_mm, 0, config_.max_lift_mm)*liftScale;
     time_us_ = 0; stage_ = WalkStage::Transfer;
 }
 void WalkPlanner::beginStop() {
@@ -94,6 +100,7 @@ void WalkPlanner::beginStop() {
     shift_from_ = shift_; shift_target_ = {};
     time_us_ = 0; duration_us_ = microseconds(std::min(config_.landing_s, kStopCenterSeconds));
     stage_ = WalkStage::Center;
+    lift_steps_ = 0;
 }
 void WalkPlanner::render() {
     for (int i=0; i<4; ++i) output_[i] = {feet_[i].x-shift_.x, feet_[i].y-shift_.y, feet_[i].z};
@@ -129,7 +136,8 @@ const WalkFeet &WalkPlanner::update(const WalkInput &input, float dt_s) {
             // behind the hip at full lift over-folds Lite's hip joint.
             // Reuse the lift shape: X and Z have zero V/A at apex and contacts.
             const float end = u < 0.5f ? from_[swing].x : target_[swing].x;
-            feet_[swing].x = end + (shift_.x-end)*lift_shape;
+            const float foldX = shift_.x + support_x_mm_;
+            feet_[swing].x = end + (foldX-end)*lift_shape;
             feet_[swing].z = -lift_*lift_shape;
         }
         render();
@@ -155,6 +163,7 @@ const WalkFeet &WalkPlanner::update(const WalkInput &input, float dt_s) {
             }
         } else if (stage_ == WalkStage::Swing) {
             slot_ = (slot_+1)%4;
+            if (lift_steps_ < (kStartupLiftScales.size()-1)*config_.order.size()) ++lift_steps_;
             if (!input.moving) beginStop();
             else transfer(input);
         } else if (stage_ == WalkStage::Center) {

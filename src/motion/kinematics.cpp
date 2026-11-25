@@ -40,23 +40,23 @@ void sinCos(float angle, float &sine, float &cosine)
 Geometry::Geometry(const BodyParam_t &profile)
     : upper(profile.L_b), lower(profile.L_c), lateral(profile.L_d),
       halfWidth(profile.width), halfLength(profile.length),
+      footHalfWidth(neutralFootHalfWidth(profile)),
       upperSquared(upper * upper), lowerSquared(lower * lower),
       lateralSquared(lateral * lateral), twiceUpper(2.0f * upper), kneeDenominator(twiceUpper * lower),
       valid(isfinite(upperSquared) && isfinite(lowerSquared) &&
             isfinite(lateralSquared) && isfinite(kneeDenominator) &&
-            isfinite(halfWidth) && isfinite(halfLength) && upper > 0.0f &&
+            isfinite(halfWidth) && isfinite(halfLength) && isfinite(footHalfWidth) && upper > 0.0f &&
             lower > 0.0f && lateral >= 0.0f && kneeDenominator > 0.0f)
 {
 }
 
-bool solveLeg(const Geometry &geometry, const Point &foot, float side,
-              float heightBias, LegAngles &angles)
+bool solveLeg(const Geometry &geometry, const Point &foot, float side, LegAngles &angles)
 {
-    if (!geometry.valid || !finitePoint(foot) || (side != -1.0f && side != 1.0f) || !isfinite(heightBias))
+    if (!geometry.valid || !finitePoint(foot) || (side != -1.0f && side != 1.0f))
         return false;
     const float x = foot.x;
     const float y = side * foot.y;
-    const float z = foot.z + heightBias;
+    const float z = foot.z;
     const float legZSquared = z * z + y * y - geometry.lateralSquared;
     if (!isfinite(legZSquared) || legZSquared <= 0.0f || z <= 0.0f)
         return false;
@@ -91,7 +91,7 @@ bool solveBody(const Geometry &geometry, const BodyPose &pose, const Sign &sides
     if (!geometry.valid || !finitePoint({pose.x, pose.y, pose.z}) ||
         !isfinite(pose.roll) || !isfinite(pose.pitch) || !isfinite(pose.yaw))
         return false;
-    const float width = geometry.halfWidth + geometry.lateral;
+    const float width = geometry.footHalfWidth;
     const float length = geometry.halfLength;
     const float roll = pose.roll * kPi / 180.0f;
     const float pitch = pose.pitch * kPi / 180.0f;
@@ -249,7 +249,7 @@ void LegIK(Leg_t *limb)
     const kinematics::Geometry geometry(bodyConfig);
     const kinematics::Point target = footTarget(*limb, {limb->x_base, limb->y_base, limb->z_base});
     kinematics::LegAngles angles;
-    if (!kinematics::solveLeg(geometry, target, limb->sign, limb->z_bias, angles)) {
+    if (!kinematics::solveLeg(geometry, target, limb->sign, angles)) {
         return;
     }
     commitLeg(*limb, target, angles);
@@ -297,7 +297,7 @@ void WholeIK()
     // This is solve-level consistency, not cross-task atomic state publication.
     for (uint8_t i = 0; i < 4; ++i) {
         targets[i] = footTarget(leg[i], bases[i]);
-        if (!kinematics::solveLeg(geometry, targets[i], leg[i].sign, leg[i].z_bias, angles[i])) {
+        if (!kinematics::solveLeg(geometry, targets[i], leg[i].sign, angles[i])) {
             return;
         }
     }

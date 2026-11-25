@@ -38,14 +38,14 @@ void GaitEngine::startRunning(const GaitInput &input) {
     latchTiming(input);
     mode_ = Mode::Running;
     clock_us_ = 0;
+    lift_cycle_ = input.full_lift_from_start ? kStartupLiftScales.size()-1 : 0;
     startStep(input);
 }
 void GaitEngine::startStep(const GaitInput &input) {
     // Every preceding swing has landed at this scheduled exchange. Adopt the
     // latest stride for all feet together; never redirect an airborne target.
     // Timing is independent, so a continuous stream cannot postpone adoption.
-    command_.support_x_mm = std::isfinite(input.support_x_mm)
-        ? bound(input.support_x_mm, -6, 6) : 0;
+    command_.support_x_mm = bound(input.support_x_mm, 0, kMaxSupportOffsetMm);
     for (unsigned i=0; i<4; ++i) {
         // Bounds exceed every shipped robot profile but prevent malformed
         // internal values from producing non-finite polynomial coefficients.
@@ -65,19 +65,27 @@ void GaitEngine::segment(unsigned i, const WalkFoot &target, const WalkFoot &vel
     leg.trajectory.set(leg.sample, target, velocity, duration);
 }
 void GaitEngine::swing(unsigned i) {
-    const float stance_s = (cycle_us_-swing_us_)*0.000001f;
     const auto &stride = command_.stride[i];
-    WalkFoot target{stride.x, stride.y, 0};
-    if (command_.support_x_mm != 0) target.x += command_.support_x_mm;
-    segment(i, target, {-2*stride.x/stance_s, -2*stride.y/stance_s, 0}, swing_us_);
-    legs_[i].trajectory.swing = true; legs_[i].trajectory.lift = command_.lift[i];
+    const WalkFoot target{stride.x + command_.support_x_mm, stride.y, 0};
+    // Start the horizontal swing at rest so the quintic moves directly to
+    // the landing target without carrying the support velocity into the air.
+    auto &sample = legs_[i].sample;
+    sample.velocity = {};
+    sample.acceleration = {};
+    segment(i, target, {}, swing_us_);
+    auto &trajectory = legs_[i].trajectory;
+    trajectory.swing = true;
+    trajectory.lift = command_.lift[i]*kStartupLiftScales[lift_cycle_];
 }
 void GaitEngine::stance(unsigned i, uint32_t duration) {
     const float stance_s = (cycle_us_-swing_us_)*0.000001f;
     const auto &stride = command_.stride[i];
     WalkFoot target{-stride.x, -stride.y, 0};
     if (command_.support_x_mm != 0) target.x += command_.support_x_mm;
-    segment(i, target, {-2*stride.x/stance_s, -2*stride.y/stance_s, 0}, duration);
+    const WalkFoot velocity{-2*stride.x/stance_s, -2*stride.y/stance_s, 0};
+    // Match ground travel at touchdown. Grounded replans keep their sample.
+    if (legs_[i].trajectory.swing) legs_[i].sample.velocity = velocity;
+    segment(i, target, velocity, duration);
 }
 void GaitEngine::brake(unsigned i) {
     const auto &s = legs_[i].sample;
@@ -110,6 +118,7 @@ void GaitEngine::events(const GaitInput &input) {
         for (unsigned i=0; i<4; ++i) if (legs_[i].trajectory.swing && legs_[i].elapsed == legs_[i].trajectory.duration)
             stance(i, cycle_us_-swing_us_);
         if (clock_us_ == cycle_us_) {
+            if (lift_cycle_ < kStartupLiftScales.size()-1) ++lift_cycle_;
             clock_us_ = 0; latchTiming(input);
         }
         bool exchange = false;

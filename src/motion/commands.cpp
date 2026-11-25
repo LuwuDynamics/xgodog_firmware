@@ -7,7 +7,7 @@
 #include "robot/state.h"
 #include "motor/motor.h"
 #include "protocol/protocol.h"
-#include <math.h>
+#include <cmath>
 
 bool RobotCommand_SetBaud(uint8_t port, uint8_t baudIndex)
 {
@@ -58,8 +58,12 @@ void RobotCommand_ApplyMotion(uint8_t axisMask)
         body.vx = 0;
     if ((axisMask & ROBOT_MOTION_VY) != 0 && fabsf(body.vy) < 0.1f * bodyConfig.vy_max)
         body.vy = 0;
-    if ((axisMask & ROBOT_MOTION_YAW) != 0 && fabsf(imu.yaw_speed) < 0.1f)
-        imu.yaw_speed = 0;
+    if ((axisMask & ROBOT_MOTION_YAW) != 0) {
+        if (!std::isfinite(imu.yaw_speed) || fabsf(imu.yaw_speed) < 0.1f)
+            imu.yaw_speed = 0;
+        else
+            imu.yaw_speed = Saturation(imu.yaw_speed, imu.yaw_speed_max, imu.yaw_speed_min);
+    }
     MotionControl_NotifyMotionCommand();
 }
 

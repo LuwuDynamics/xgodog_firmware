@@ -30,7 +30,7 @@ struct GaitPolynomial {
 // One immutable-by-convention segment value. The engine owns elapsed time;
 // constraint evaluation can inspect this exact trajectory without advancing it.
 // Position units are mm; derivatives use seconds. Swing replaces Z with a
-// two-half quintic and is constructed only at grounded exchanges.
+// two-half quintic with accelerated lift and is constructed only at grounded exchanges.
 struct GaitTrajectory {
     GaitPolynomial x, y, z;
     WalkFoot target{}, target_velocity{};
@@ -49,15 +49,22 @@ struct GaitTrajectory {
         swing = false; lift = 0;
     }
     static void applyLift(float u, float seconds, float height, GaitSample &s) {
-        const float q = u <= 0.5f ? u*2 : (1-u)*2;
-        const float sign = u <= 0.5f ? 1.f : -1.f;
+        const bool rising = u <= 0.5f;
+        const float phase = rising ? u*2 : (1-u)*2;
+        // Advance the ascent without changing peak height/time or descent.
+        // The quintic retains zero velocity/acceleration at lift and apex.
+        const float q = rising ? phase*(2-phase) : phase;
+        const float rate = rising ? 4*(1-phase) : -2;
+        const float acceleration = rising ? -8.f : 0.f;
         const float q2 = q*q;
         // Short-side evaluation avoids cancellation near the swing apex.
         const float r = q <= .5f ? q : 1-q;
         const float h = r*r*r*(10+r*(-15+6*r));
         s.position.z = -height*(q <= .5f ? h : 1-h);
-        s.velocity.z = -height*30*q2*(1-q)*(1-q)*sign*2/seconds;
-        s.acceleration.z = -height*60*q*(1-q)*(1-2*q)*4/(seconds*seconds);
+        const float slope = 30*q2*(1-q)*(1-q);
+        const float curvature = 60*q*(1-q)*(1-2*q);
+        s.velocity.z = -height*slope*rate/seconds;
+        s.acceleration.z = -height*(curvature*rate*rate+slope*acceleration)/(seconds*seconds);
     }
     GaitSample sample(uint32_t elapsed) const {
         GaitSample value;
@@ -84,6 +91,7 @@ namespace xgo {
 struct GaitInput {
     bool moving = false;
     bool walk = false;
+    bool full_lift_from_start = false;
     uint8_t kind = 0;
     float period_s = 0.37f;
     float swing_ratio = 0.48f;
@@ -127,5 +135,6 @@ private:
     std::array<uint32_t, 4> lift_at_{};
     uint32_t cycle_us_ = 370000, swing_us_ = 177600, clock_us_ = 0;
     bool lead02_ = true;
+    uint8_t lift_cycle_ = 0;
 };
 }

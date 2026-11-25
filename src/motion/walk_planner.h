@@ -3,6 +3,9 @@
 #include <cstdint>
 
 namespace xgo {
+constexpr float kMaxSupportOffsetMm = 8.0f;
+constexpr std::array<float, 3> kStartupLiftScales{{0.50f, 0.75f, 1.0f}};
+
 struct WalkFoot { // mm, negative Z lifts
     float x = 0, y = 0, z = 0;
     WalkFoot() = default;
@@ -43,10 +46,12 @@ inline WalkConfig HighWalkConfig() {
 
 struct WalkInput {
     bool moving = false;
+    bool full_lift_from_start = false;
     WalkFeet stride{};
     WalkFeet nominal{}; // nominal foot positions relative to body/COM projection
     float cycle_s = 2.0f;
     float lift_mm = 22.0f;
+    float support_x_mm = 0; // Requested fore/aft offset before stride scaling.
 };
 enum class WalkStage : uint8_t { Idle, Landing, Transfer, Swing, Center };
 
@@ -72,6 +77,8 @@ private:
     uint32_t time_us_ = 0;
     uint32_t duration_us_ = 1000000, swing_us_ = 200000;
     float lift_ = 0;
+    float support_x_mm_ = 0;
     uint8_t slot_ = 0;
+    uint8_t lift_steps_ = 0;
 };
 }

@@ -7,6 +7,7 @@
 #include "board/board.h"
 #include "motor/motor.h"
 #include "action/action.h"
+#include <cmath>
 
 namespace {
 struct ScaledField {
@@ -30,6 +31,28 @@ const ScaledField kBodyFields[] = {
 };
 static_assert(sizeof(kBodyFields) / sizeof(kBodyFields[0]) == 9,
               "legacy scalar address range changed");
+
+constexpr int kMotionCenter = 0x80;
+
+float decodeBodyField(uint8_t address, uint8_t data, const ScaledField &field)
+{
+    if (address != 0x30 || xgo_version != XGOMINI)
+        return u8_to_float(data, *field.minimum, *field.maximum);
+    const int delta = static_cast<int>(data) - kMotionCenter;
+    return delta < 0 ? -*field.minimum * (delta / 128.0f)
+                     : *field.maximum * (delta / 127.0f);
+}
+
+uint8_t encodeBodyField(uint8_t address, const ScaledField &field)
+{
+    if (address != 0x30 || xgo_version != XGOMINI)
+        return float_to_u8(*field.value, *field.minimum, *field.maximum);
+    if (!std::isfinite(*field.value)) return kMotionCenter;
+    const float value = Saturation(*field.value, *field.maximum, *field.minimum);
+    const float delta = value < 0 ? value / -*field.minimum * 128.0f
+                                  : value / *field.maximum * 127.0f;
+    return static_cast<uint8_t>(kMotionCenter + std::lround(delta));
+}
 
 int motorIndex(uint8_t address)
 {
@@ -106,7 +129,7 @@ void RegisterProtocol_Write(uint8_t port, const MsgPacket &pkt)
 	}
 	else if(addr>=0x30&&addr<=0x38) {
         const ScaledField &field = kBodyFields[addr - 0x30];
-        *field.value = u8_to_float(pkt.message[2], *field.minimum, *field.maximum);
+        *field.value = decodeBodyField(addr, pkt.message[2], field);
         if (addr <= 0x32) {
             static const uint8_t motionAxes[] = {
                 ROBOT_MOTION_VX, ROBOT_MOTION_VY, ROBOT_MOTION_YAW
@@ -265,7 +288,7 @@ void RegisterProtocol_Read(MsgRead &rb)
     // Preserve the requested length (and previous tail bytes) for scalar reads.
     if (rb.addr >= 0x30 && rb.addr <= 0x38) {
         const ScaledField &field = kBodyFields[rb.addr - 0x30];
-        rb.message[0] = float_to_u8(*field.value, *field.minimum, *field.maximum);
+        rb.message[0] = encodeBodyField(rb.addr, field);
         return;
     }
     const int index = motorIndex(rb.addr);

@@ -95,6 +95,8 @@ constexpr float kWheelHeadingDeadbandDeg = 1.0f;
 constexpr float kWheelHeadingLimitDeg = 10.0f;
 constexpr float kWheelHeadingGain = 0.05f;
 constexpr float kWheelLegHeadingGain = 0.33f;
+// Full manual turn rate contributes 50% of the model's yaw stride limit.
+constexpr float kYawFeedforward = 0.5f * SYSTEM_TICK_HZ / YAW_RATE_LIMIT_DEG_S;
 bool stableFeedbackLost = true;
 std::atomic<bool> resetPending{false};
 std::atomic<bool> stopPending{false};
@@ -299,10 +301,7 @@ static void updateYawSpeed(bool stopRequested){
         headingFeedbackLost = false;
     }
     if (!isfinite(imu.des_yaw)) imu.des_yaw = imu.yaw;
-	move_yaw_pid.fpEMin = 1.5f;
-    move_yaw_pid.fpKp = 0.33f; // 0.3 * 1.1
-	move_yaw_pid.fpKi = 0.0f;
-	move_yaw_pid.fpKd = 0.02f;
+
 	float track_err = 0.0;
 	if (yaw_track_flag) {
 		gm.T = bodyConfig.NORMAL_T;
@@ -324,13 +323,15 @@ static void updateYawSpeed(bool stopRequested){
 		return;
 	}
 
-    const float target = imu.des_yaw + imu.yaw_speed * motion_time::stepTicks();
+    const float yawOrder = imu.yaw_speed;
+    const float elapsedTicks = motion_time::stepTicks();
+    const float target = imu.des_yaw + yawOrder * elapsedTicks;
     imu.des_yaw = isfinite(target) ? target : imu.yaw;
-	move_yaw_pid.fpDes = imu.des_yaw;
-	move_yaw_pid.fpFB = imu.yaw;
-	CalISeparatedPID(&move_yaw_pid, motion_time::stepTicks());
-	body.vyaw = move_yaw_pid.fpU;
-	body.vyaw = Saturation(body.vyaw,bodyConfig.vyaw_max,-bodyConfig.vyaw_max);
+    move_yaw_pid.fpDes = imu.des_yaw;
+    move_yaw_pid.fpFB = imu.yaw;
+    CalISeparatedPID(&move_yaw_pid, elapsedTicks);
+    const float feedforward = yawOrder * kYawFeedforward * bodyConfig.vyaw_max;
+    body.vyaw = Saturation(feedforward + move_yaw_pid.fpU, bodyConfig.vyaw_max, bodyConfig.vyaw_min);
 }
 
 static void updateBodyXYZ(){
