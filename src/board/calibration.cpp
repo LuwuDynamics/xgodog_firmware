@@ -12,6 +12,8 @@ void StartCalibration(void) {
     motor[12].des_angle = -120;
     motor[12].min_angle = -120;
     vTaskDelay(pdMS_TO_TICKS(1500));
+    if (xgo_version == XGOLITE && motor_version == MOTOR_009)
+        inCalibration = 1; // Stop position commands before releasing torque.
     EnableAllMotor(0);
     vTaskDelay(pdMS_TO_TICKS(100));
 

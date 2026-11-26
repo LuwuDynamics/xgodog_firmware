@@ -41,11 +41,13 @@ Geometry::Geometry(const BodyParam_t &profile)
     : upper(profile.L_b), lower(profile.L_c), lateral(profile.L_d),
       halfWidth(profile.width), halfLength(profile.length),
       footHalfWidth(neutralFootHalfWidth(profile)),
+      frontFootX(neutralFootX(profile, 1)), rearFootX(neutralFootX(profile, -1)),
       upperSquared(upper * upper), lowerSquared(lower * lower),
       lateralSquared(lateral * lateral), twiceUpper(2.0f * upper), kneeDenominator(twiceUpper * lower),
       valid(isfinite(upperSquared) && isfinite(lowerSquared) &&
             isfinite(lateralSquared) && isfinite(kneeDenominator) &&
-            isfinite(halfWidth) && isfinite(halfLength) && isfinite(footHalfWidth) && upper > 0.0f &&
+            isfinite(halfWidth) && isfinite(halfLength) && isfinite(footHalfWidth) &&
+            isfinite(frontFootX) && isfinite(rearFootX) && upper > 0.0f &&
             lower > 0.0f && lateral >= 0.0f && kneeDenominator > 0.0f)
 {
 }
@@ -92,14 +94,13 @@ bool solveBody(const Geometry &geometry, const BodyPose &pose, const Sign &sides
         !isfinite(pose.roll) || !isfinite(pose.pitch) || !isfinite(pose.yaw))
         return false;
     const float width = geometry.footHalfWidth;
-    const float length = geometry.halfLength;
     const float roll = pose.roll * kPi / 180.0f;
     const float pitch = pose.pitch * kPi / 180.0f;
     const float yaw = pose.yaw * kPi / 180.0f;
     Point candidate[4];
     if (roll == 0.0f && pitch == 0.0f && yaw == 0.0f) {
         for (uint8_t i = 0; i < 4; ++i) {
-            const float x = sides.ppnn[i] * length;
+            const float x = sides.ppnn[i] > 0 ? geometry.frontFootX : geometry.rearFootX;
             const float y = -1 * sides.nppn[i] * width;
             candidate[i] = {x - pose.x - geometry.halfLength * sides.ppnn[i],
                             y - pose.y + geometry.halfWidth * sides.nppn[i], pose.z};
@@ -114,7 +115,7 @@ bool solveBody(const Geometry &geometry, const BodyPose &pose, const Sign &sides
         // x/y translation is expressed in the yaw-aligned horizontal plane;
         // z is body height above the fixed ground anchors.
         for (uint8_t i = 0; i < 4; ++i) {
-            const float anchorX = sides.ppnn[i] * length;
+            const float anchorX = sides.ppnn[i] > 0 ? geometry.frontFootX : geometry.rearFootX;
             const float anchorY = -sides.nppn[i] * width;
             // Rz(-yaw) F - (x,y,z): neutral world foot anchors stay fixed.
             const float headingX = cy*anchorX + sy*anchorY - pose.x;

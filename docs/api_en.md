@@ -88,7 +88,7 @@ The legacy scale and main/sub-address pose limits are listed below. Firmware sel
 | Body X / mm | −30 to 30 | −30 to 30 | −20 to 20 |
 | Body Y / mm | −18 to 18 | −16.2 to 16.2 | −16 to 16 |
 | Body Z / mm | 70 to 120 | 70 to 114 | 65 to 110 |
-| Default standing height / mm | 100 | 100 | 85 |
+| Default standing height / mm | 100 | 100 | 90 |
 | Roll / Pitch / Yaw / ° | −18 to 18 | −18 to 18 | −15 to 15 |
 | `vx` command | −20 to 30 | −20 to 25 | −14.3 to 22 |
 | `vy` command | −20 to 20 | −20 to 20 | −12.5 to 12.5 |
@@ -102,6 +102,8 @@ Read:  byte = trunc((value − minimum) / (maximum − minimum) × 255), clamped
 ```
 
 For Mini and wheel-legged Mini, `vx` (`0x30`) uses `0x80` as zero. Bytes `0x00–0x80` map linearly to −20 to 0. Bytes `0x80–0xFF` map linearly to 0 to 30 on Mini and 0 to 25 on wheel-legged Mini. Reads use the same segments and round to the nearest byte. Small commands still pass through the motion deadband.
+
+On Lite in Trot, full-scale `vx` gives a translation half-stride of ±20 mm at high speed and ±25 mm at normal and low speeds. Full-scale `vy` gives ±16 mm. The turning stride is added separately.
 
 `yaw_speed` is the angular increment per nominal 5 ms control step. Full scale corresponds to a target heading rate of ±120°/s.
 
@@ -396,11 +398,11 @@ The order of all built-in servo feedback is fixed. These are decimal device IDs.
 
 | Timing preset | Mini / wheel-legged Mini | Lite |
 | ---: | ---: | ---: |
-| 0 normal | 0.42 s | 0.45 s |
-| 1 slow | 0.52 s | 0.60 s |
-| 2 fast | 0.37 s | 0.36 s |
+| 0 normal | 0.42 s | 0.41 s |
+| 1 slow | 0.52 s | 0.86 s |
+| 2 fast | 0.37 s | 0.35 s |
 
-Walk uses its own four-leg cycle. Low trot uses a 0.50 s cycle. Only 0–2 are valid timing presets.
+Walk uses a 1.40 s four-leg cycle. Low trot uses a 0.50 s cycle on Mini and a 0.57 s cycle on Lite. Lite High walk uses a fixed 3.20 s cycle. Only 0–2 are valid timing presets.
 
 ### 5.3 Action IDs
 

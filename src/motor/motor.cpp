@@ -12,6 +12,19 @@ namespace {
 constexpr uint8_t kBigEndian = 0;
 constexpr uint8_t kLittleEndian = 1;
 constexpr uint8_t kWheelVelocityAddress = 0x20;
+constexpr uint8_t kPositionGainAddress = 21;
+constexpr uint8_t k009PositionKp = 32;
+constexpr uint8_t k009PositionKd = 16;
+constexpr uint8_t kLite009PositionKp = 15;
+constexpr uint8_t kLite009PositionKd = 15;
+constexpr uint8_t k009MaxTorqueAddress = 0x10;
+constexpr uint8_t k009EepromLockAddress = 0x30;
+constexpr uint8_t kGripperId = 51;
+constexpr uint16_t kGripperTorqueLimit = 400;
+
+bool usesLite009Drive(uint8_t version) {
+    return xgo_version == XGOLITE && version == MOTOR_009;
+}
 }
 
 namespace {
@@ -219,7 +232,7 @@ static void packWord(uint8_t *pDat, uint16_t nVal) {
     motor_bus::packWord(pDat, nVal, g_motorConfig.ENDIAN);
 }
 
-static void writeInstruction(uint8_t ID, uint8_t Fun, uint8_t *nDat, uint8_t nLen)
+static void writeInstruction(uint8_t ID, uint8_t Fun, const uint8_t *nDat, uint8_t nLen)
 {
     writeFrame(ID, Fun, NULL, 0, nDat, nLen);
 }
@@ -247,11 +260,15 @@ static void readMotor(uint8_t ID, uint8_t addr, uint8_t nLen){
 
 static void writeMotorEnable(uint8_t ID, uint8_t state, uint8_t version){ // 修改PD参数变成带阻尼模式
     uint8_t payload[3];
-    if(version != 0x03){
-        payload[0] = 0x15;
+    if (usesLite009Drive(version)) {
+        writeByte(ID, g_motorConfig.ADDR_ENABLE, state == 1 ? 1 : 0);
+        return;
+    }
+    if(version != MOTOR_RC05P){
+        payload[0] = kPositionGainAddress;
         if(state == 1){
-            payload[1] = version == MOTOR_3032 ? 24 : 32;
-            payload[2] = version == MOTOR_3032 ? 0 : 16;
+            payload[1] = version == MOTOR_3032 ? 24 : k009PositionKp;
+            payload[2] = version == MOTOR_3032 ? 0 : k009PositionKd;
         }else{
             if(version==0x01){
                 payload[1] = 0;
@@ -508,7 +525,7 @@ void Init_Motor(){
     Init_Motor_ZeroPos();
     Init_ExMotor();
     Init_Wheel();
-    SetTorLimit(51, 400);
+    SetTorLimit(kGripperId, kGripperTorqueLimit);
     SetLegMotorSpeed(kStartupLegSpeed);
     SetArmMotorSpeed(60);
 }
@@ -619,7 +636,7 @@ static void KeepWheelEnable(void){
 }
 
 // One record layout is used by legs, arm and extension motors. RC05P omits
-// torque; 009/3032 retain it even while disabled to avoid re-enable jumps.
+// the intermediate word used by 009/3032.
 static uint8_t *packMotorTarget(uint8_t *out, const Motor_t &target,
                                 uint16_t speed, bool compact)
 {
@@ -635,6 +652,9 @@ static uint8_t *packMotorTarget(uint8_t *out, const Motor_t &target,
 }
 
 static void SendMotorDesPos(){
+    const bool lite009 = usesLite009Drive(motor_version);
+    if (lite009 && inCalibration) return;
+
     static const uint8_t kMotorRecordMax = 7;
     uint8_t order[(MOTOR_NUM + 10) * kMotorRecordMax];
     uint8_t *next = order;
@@ -645,7 +665,8 @@ static void SendMotorDesPos(){
     const uint16_t startupLegSpeed = imuInitializing
         ? (uint16_t)(kStartupLegSpeed / 255.0 * g_motorConfig.M_V) : 0;
     for (int i = 0; i < MOTOR_NUM; ++i) {
-        if (motor[i].enable != 1 && compact) continue;
+        // A position write can re-engage a released 009 servo.
+        if (motor[i].enable != 1 && (compact || lite009)) continue;
         const uint16_t speed = (imuInitializing && i < 12)
             ? startupLegSpeed : motor[i].speed;
         next = packMotorTarget(next, motor[i], speed, compact);
@@ -662,15 +683,37 @@ void EnableAllMotor(uint8_t state){
     RequestMotorEnable(0xFE, state);
 }
 
-// Calibration can leave PD registers disabled across an ESP32 restart.
-// Restore drive gains for each 009/3032 leg and arm ID.
+static void configureLite009Servo(uint8_t id) {
+    const BusLock lock;
+    writeByte(id, k009EepromLockAddress, 0);
+    waitWithFeedback(5);
+    if (id == kGripperId) {
+        writeWord(id, k009MaxTorqueAddress, kGripperTorqueLimit);
+        waitWithFeedback(5);
+    }
+    const uint8_t gains[] = {kPositionGainAddress, kLite009PositionKp, kLite009PositionKd};
+    for (int retry = 0; retry < 3; ++retry) {
+        writeInstruction(id, 0x03, gains, sizeof(gains));
+        waitWithFeedback(5);
+    }
+    writeByte(id, k009EepromLockAddress, 1);
+    waitWithFeedback(5);
+}
+
+// Restore drive for each 009/3032 leg and arm ID at startup.
 static void restoreLegArmDrive(void){
     if ((motor_version != MOTOR_009 && motor_version != MOTOR_3032) || inCalibration)
         return;
+    const bool lite009 = usesLite009Drive(motor_version);
     for (int i = 0; i < MOTOR_NUM; i++) {
+        const uint8_t id = motor[i].id;
+        if (lite009) {
+            if (inCalibration) return;
+            configureLite009Servo(id);
+        }
         for (int j = 0; j < 3; j++) {
             const BusLock lock;
-            writeMotorEnable(motor[i].id, 1, motor_version);
+            writeMotorEnable(id, 1, motor_version);
             waitWithFeedback(5);
         }
         if (motor_version == MOTOR_3032) {
@@ -683,7 +726,7 @@ static void restoreLegArmDrive(void){
 }
 
 static void SetTorLimit(uint8_t ID,uint16_t limit){
-    if(motor_version == MOTOR_RC05P){
+    if(motor_version != MOTOR_3032){
         return;
     }
     const BusLock lock;

@@ -6,7 +6,7 @@
 #define XGOMINI 1
 #define XGOLITE 2
 
-#define XGO_FIRMWARE_VERSION "-7.3.4"
+#define XGO_FIRMWARE_VERSION "-7.3.5"
 
 struct RobotProfile {
     BodyParam_t body;
@@ -50,7 +50,6 @@ extern uint8_t yaw_track_flag;
 extern PID_t move_yaw_pid;
 extern GaitManager_t gm;
 
-extern float sr;
 
 /* 动作 */
 extern ActionContext_t Action_Ctx;

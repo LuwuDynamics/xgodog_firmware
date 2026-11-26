@@ -61,11 +61,14 @@ RobotProfile RobotProfile_Create(const uint8_t model, const uint8_t wheel){
         bodyConfig.L_b = 54.9f;
         bodyConfig.L_c = 66.8f;
         bodyConfig.L_d = 28.1f;
-        bodyConfig.z_init = 85.0f;
-        bodyConfig.NORMAL_T = SEC_2_TICK(0.45);
-        bodyConfig.MID_T = SEC_2_TICK(0.55);
-        bodyConfig.SLOW_T = SEC_2_TICK(0.60);
-        bodyConfig.FAST_T = SEC_2_TICK(0.36);
+        bodyConfig.z_init = 90.0f;
+        bodyConfig.stance_front_x = 14.0f;
+        bodyConfig.stance_rear_x = -1.0f;
+        // Lite 4.3.8 advances 10 phase units per nominal 2 ms control step.
+        bodyConfig.NORMAL_T = SEC_2_TICK(0.41f);
+        bodyConfig.MID_T = SEC_2_TICK(0.57f);
+        bodyConfig.SLOW_T = SEC_2_TICK(0.86f);
+        bodyConfig.FAST_T = SEC_2_TICK(0.35f);
         bodyConfig.xmax = 20;
         bodyConfig.xmin = -20;
         bodyConfig.ymax = 16;

@@ -11,6 +11,27 @@ uint32_t smaller(uint32_t a, uint32_t b) { return a < b ? a : b; }
 bool finite(const WalkFoot &p) { return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z); }
 }
 
+GaitSample GaitTrajectory::sampleLiteTrot(float u, float seconds) const {
+    GaitSample value;
+    const float quarterRate = 4.0f/seconds;
+    if (u < 0.25f) {
+        const float q = 4.0f*u;
+        value.position = {x.c[0] + swing_x_offset*q, y.c[0], -lift*q};
+        value.velocity = {swing_x_offset*quarterRate, 0, -lift*quarterRate};
+    } else if (u < 0.75f) {
+        const float q = 2.0f*u - 0.5f;
+        const float dx = target.x - x.c[0];
+        const float dy = target.y - y.c[0];
+        value.position = {x.c[0] + swing_x_offset + dx*q, y.c[0] + dy*q, -lift};
+        value.velocity = {dx*quarterRate/2.0f, dy*quarterRate/2.0f, 0};
+    } else {
+        const float q = 4.0f*(1.0f-u);
+        value.position = {target.x + swing_x_offset*q, target.y, -lift*q};
+        value.velocity = {-swing_x_offset*quarterRate, 0, lift*quarterRate};
+    }
+    return value;
+}
+
 void GaitEngine::reset() { *this = GaitEngine{}; }
 void GaitEngine::begin(const WalkFeet &current, bool lead02) {
     reset(); lead02_ = lead02; mode_ = Mode::Starting;
@@ -20,14 +41,13 @@ void GaitEngine::begin(const WalkFeet &current, bool lead02) {
     }
 }
 void GaitEngine::latchTiming(const GaitInput &input) {
-    command_.kind = input.kind;
-    command_.walk = input.walk;
-    command_.period_s = bound(input.period_s, 0.2f, 4.f);
-    command_.swing_ratio = bound(input.swing_ratio, 0.05f, input.walk ? 0.25f : 0.5f);
-    cycle_us_ = us(command_.period_s);
+    gait_kind_ = input.kind;
+    const float period = bound(input.period_s, 0.2f, 4.f);
+    const float swingRatio = bound(input.swing_ratio, 0.05f, input.walk ? 0.25f : 0.5f);
+    cycle_us_ = us(period);
     // The shortest integer event spacing bounds swing duration. Independently
     // rounding T*ratio could overlap adjacent swings by 1 us for odd periods.
-    swing_us_ = smaller(us(command_.period_s * command_.swing_ratio),
+    swing_us_ = smaller(us(period * swingRatio),
                         cycle_us_ / (input.walk ? 4u : 2u));
     const unsigned order[4] = {lead02_ ? 0u : 1u, lead02_ ? 2u : 3u,
                                lead02_ ? 1u : 0u, lead02_ ? 3u : 2u};
@@ -45,18 +65,21 @@ void GaitEngine::startStep(const GaitInput &input) {
     // Every preceding swing has landed at this scheduled exchange. Adopt the
     // latest stride for all feet together; never redirect an airborne target.
     // Timing is independent, so a continuous stream cannot postpone adoption.
-    command_.support_x_mm = bound(input.support_x_mm, 0, kMaxSupportOffsetMm);
+    command_.stride_center_y = input.stride_center_y;
+    command_.swing_x_offset = input.swing_x_offset;
+    command_.lite_swing = input.lite_swing;
     for (unsigned i=0; i<4; ++i) {
         // Bounds exceed every shipped robot profile but prevent malformed
         // internal values from producing non-finite polynomial coefficients.
         command_.stride[i].x = std::isfinite(input.stride[i].x) ? bound(input.stride[i].x, -100, 100) : 0;
         command_.stride[i].y = std::isfinite(input.stride[i].y) ? bound(input.stride[i].y, -100, 100) : 0;
         command_.lift[i] = bound(input.lift[i], 0, 60);
+        command_.stride_center_x[i] = input.stride_center_x[i];
     }
     for (unsigned i=0; i<4; ++i) {
-        const uint32_t until_lift = (lift_at_[i] + cycle_us_ - clock_us_) % cycle_us_;
-        if (until_lift == 0) swing(i);
-        else stance(i, until_lift);
+        const uint32_t liftAt = lift_at_[i];
+        if (liftAt == clock_us_) swing(i);
+        else stance(i, liftAt + (liftAt < clock_us_ ? cycle_us_ : 0u) - clock_us_);
     }
 }
 void GaitEngine::segment(unsigned i, const WalkFoot &target, const WalkFoot &velocity, uint32_t duration) {
@@ -66,22 +89,24 @@ void GaitEngine::segment(unsigned i, const WalkFoot &target, const WalkFoot &vel
 }
 void GaitEngine::swing(unsigned i) {
     const auto &stride = command_.stride[i];
-    const WalkFoot target{stride.x + command_.support_x_mm, stride.y, 0};
-    // Start the horizontal swing at rest so the quintic moves directly to
-    // the landing target without carrying the support velocity into the air.
+    const WalkFoot target{stride.x + command_.stride_center_x[i],
+                          stride.y + command_.stride_center_y, 0};
+    // The quintic starts at rest. Lite Trot supplies its own linear velocity.
     auto &sample = legs_[i].sample;
     sample.velocity = {};
     sample.acceleration = {};
     segment(i, target, {}, swing_us_);
     auto &trajectory = legs_[i].trajectory;
     trajectory.swing = true;
+    trajectory.lite_swing = command_.lite_swing;
+    trajectory.swing_x_offset = command_.swing_x_offset;
     trajectory.lift = command_.lift[i]*kStartupLiftScales[lift_cycle_];
 }
 void GaitEngine::stance(unsigned i, uint32_t duration) {
     const float stance_s = (cycle_us_-swing_us_)*0.000001f;
     const auto &stride = command_.stride[i];
-    WalkFoot target{-stride.x, -stride.y, 0};
-    if (command_.support_x_mm != 0) target.x += command_.support_x_mm;
+    const WalkFoot target{-stride.x + command_.stride_center_x[i],
+                          -stride.y + command_.stride_center_y, 0};
     const WalkFoot velocity{-2*stride.x/stance_s, -2*stride.y/stance_s, 0};
     // Match ground travel at touchdown. Grounded replans keep their sample.
     if (legs_[i].trajectory.swing) legs_[i].sample.velocity = velocity;
@@ -133,7 +158,7 @@ void GaitEngine::events(const GaitInput &input) {
         }
         if (done) {
             // A fresh command can start from the grounded, stationary feet.
-            if (input.moving && input.kind == command_.kind) startRunning(input);
+            if (input.moving && input.kind == gait_kind_) startRunning(input);
             else center();
         }
     } else if (mode_ == Mode::Center) {
@@ -150,7 +175,7 @@ const WalkFeet &GaitEngine::update(const GaitInput &input, uint32_t elapsed_us) 
         if (displaced || !input.moving) center();
         else startRunning(input);
     }
-    if (mode_ == Mode::Running && (!input.moving || input.kind != command_.kind)) requestStop();
+    if (mode_ == Mode::Running && (!input.moving || input.kind != gait_kind_)) requestStop();
     uint32_t remaining = smaller(elapsed_us, 20000);
     while (remaining && active()) {
         uint32_t dt = remaining;

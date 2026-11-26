@@ -16,9 +16,14 @@ inline float neutralFootHalfWidth(const BodyParam_t &profile) {
     return profile.width + profile.L_d - profile.stance_y_inset;
 }
 
+inline float neutralFootX(const BodyParam_t &profile, float end) {
+    return end * profile.length + (end > 0 ? profile.stance_front_x : profile.stance_rear_x);
+}
+
 // Construct once per solve, sharing invariant terms across all four legs.
 struct Geometry {
     const float upper, lower, lateral, halfWidth, halfLength, footHalfWidth;
+    const float frontFootX, rearFootX;
     const float upperSquared, lowerSquared, lateralSquared, twiceUpper, kneeDenominator;
     const bool valid;
     explicit Geometry(const BodyParam_t &profile);

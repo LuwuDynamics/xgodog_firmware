@@ -74,6 +74,7 @@ typedef struct {
     float vx_max, vy_max, vyaw_max;
     float vx_min, vy_min, vyaw_min;
     float stance_y_inset; // Inward offset of each neutral foot anchor, mm.
+    float stance_front_x, stance_rear_x; // Neutral foot X relative to its hip, mm.
 
 } BodyParam_t;
 
@@ -149,8 +150,6 @@ typedef struct {
 } ActionContext_t;
 
 typedef struct {
-    float x_step[4];
-    float y_step[4];
     float z_step;
     float T;
     uint8_t gait_type;

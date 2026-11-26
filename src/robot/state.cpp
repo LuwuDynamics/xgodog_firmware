@@ -38,11 +38,7 @@ PID_t move_yaw_pid = {
     .fpEMin = 1.5f,
 };
 
-float sr = 0.48; // swing phase ratio 摆动相占比
-
 GaitManager_t gm = {
-    .x_step = {0, 0, 0, 0},
-    .y_step = {0, 0, 0, 0},
     .z_step = STEP_HEIGHT,
     .T = SEC_2_TICK(NORMAL_PERIOD),
     .gait_type = GAIT_TROT,
@@ -123,7 +119,6 @@ void Reset_Body(){
     body.pit_T = 0;
     gm.T = bodyConfig.NORMAL_T;
     gm.gait_type = GAIT_TROT;
-    gait_reinit = 1;
     MotionControl_RequestReset();
 }
 
